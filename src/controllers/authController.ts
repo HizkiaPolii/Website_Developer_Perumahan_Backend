@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import prisma from "../utils/database";
 import jwt, { SignOptions } from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import { logActivity, createActivityDetails } from "../utils/activityLogger";
 
 // Login user
 export const login = async (req: Request, res: Response) => {
@@ -55,6 +56,10 @@ export const login = async (req: Request, res: Response) => {
       );
       
       console.log("✅ Token generated:", token);
+
+      // Log activity
+      const activityDetails = createActivityDetails("LOGIN", { email: user.email });
+      await logActivity(user.id, "LOGIN", activityDetails);
 
       res.json({ 
         success: true, 
@@ -140,6 +145,10 @@ export const register = async (req: Request, res: Response) => {
         ...(role && { role }),
       },
     });
+
+    // Log activity - register as new user
+    const activityDetails = createActivityDetails("REGISTER", { email, name });
+    await logActivity(user.id, "REGISTER", activityDetails);
 
     res.status(201).json({ 
       success: true, 

@@ -22,6 +22,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Relationships
+  bookings    Booking[]
+  activityLogs ActivityLog[]
+
   @@map("users")
 }
 
@@ -34,6 +38,9 @@ model Unit {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Relationships
+  bookings  Booking[]
+
   @@map("units")
 }
 
@@ -45,6 +52,10 @@ model Booking {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Relationships
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unit      Unit    @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
   @@map("bookings")
 }
 
@@ -54,6 +65,9 @@ model ActivityLog {
   action    String
   details   String?
   createdAt DateTime @default(now())
+
+  // Relationships
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("activity_logs")
 }

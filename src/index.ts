@@ -3,6 +3,9 @@ import cors from "cors";
 import dotenv from "dotenv";
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/users";
+import activityLogRoutes from "./routes/activityLog";
+import bookingRoutes from "./routes/bookings";
+import unitRoutes from "./routes/units";
 
 dotenv.config();
 
@@ -34,6 +37,24 @@ console.log("🔧 Mounting user routes...");
 app.use("/api/users", userRoutes);
 
 console.log("🔧 User routes mounted");
+console.log("🔧 Mounting activity log routes...");
+
+// Activity Log routes
+app.use("/api/activity-logs", activityLogRoutes);
+
+console.log("🔧 Activity log routes mounted");
+console.log("🔧 Mounting booking routes...");
+
+// Booking routes
+app.use("/api/bookings", bookingRoutes);
+
+console.log("🔧 Booking routes mounted");
+console.log("🔧 Mounting unit routes...");
+
+// Unit routes
+app.use("/api/units", unitRoutes);
+
+console.log("🔧 Unit routes mounted");
 
 // Error handling middleware
 app.use((err: any, req: Request, res: Response, next: any) => {

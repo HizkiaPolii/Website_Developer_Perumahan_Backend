@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import prisma from "../utils/database";
 import bcrypt from "bcrypt";
+import { logActivity, createActivityDetails } from "../utils/activityLogger";
 
 // Get all users
 export const getAllUsers = async (req: Request, res: Response) => {
@@ -119,6 +120,16 @@ export const createUser = async (req: Request, res: Response) => {
         updatedAt: true,
       },
     });
+
+    // Log activity - admin/user creating new user
+    const currentUserId = req.user?.id || 0;
+    const activityDetails = createActivityDetails("CREATE_USER", { 
+      email, 
+      name, 
+      role: role || "user" 
+    });
+    await logActivity(currentUserId, "CREATE_USER", activityDetails);
+
     res.status(201).json({ 
       success: true, 
       message: "User created successfully",
@@ -180,6 +191,17 @@ export const updateUser = async (req: Request, res: Response) => {
         updatedAt: true,
       },
     });
+
+    // Log activity - updating user
+    const currentUserId = req.user?.id || 0;
+    const activityDetails = createActivityDetails("UPDATE_USER", { 
+      userId: parseInt(id as string),
+      name,
+      email,
+      role
+    });
+    await logActivity(currentUserId, "UPDATE_USER", activityDetails);
+
     res.json({ 
       success: true, 
       message: "User updated successfully",
@@ -201,6 +223,14 @@ export const deleteUser = async (req: Request, res: Response) => {
     const user = await prisma.user.delete({
       where: { id: parseInt(id as string) },
     });
+
+    // Log activity - deleting user
+    const currentUserId = req.user?.id || 0;
+    const activityDetails = createActivityDetails("DELETE_USER", { 
+      userId: parseInt(id as string)
+    });
+    await logActivity(currentUserId, "DELETE_USER", activityDetails);
+
     res.json({ 
       success: true, 
       message: "User deleted successfully",
