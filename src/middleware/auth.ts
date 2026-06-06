@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import prisma from "../utils/database";
 
 // Extend Express Request type untuk menambah user
 declare global {
@@ -10,7 +11,7 @@ declare global {
   }
 }
 
-export const authMiddleware = (
+export const authMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -26,8 +27,28 @@ export const authMiddleware = (
     }
 
     const jwtSecret = process.env.JWT_SECRET || "your-secret-key";
-    const decoded = jwt.verify(token, jwtSecret);
+    const decoded = jwt.verify(token, jwtSecret) as any;
     
+    // Check user active status in database
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: { isActive: true }
+    });
+
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "User tidak ditemukan" 
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Akun Anda dinonaktifkan. Silakan hubungi Administrator." 
+      });
+    }
+
     req.user = decoded;
     next();
   } catch (error) {

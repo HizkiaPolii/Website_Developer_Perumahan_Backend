@@ -10,64 +10,281 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Example Models - sesuaikan dengan kebutuhan Anda
+// ==================== COMPANY & USER MANAGEMENT ====================
 
-model User {
-  id        Int     @id @default(autoincrement())
-  email     String  @unique
-  name      String
-  phone     String?
-  password  String
-  role      String  @default("user")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Company {
+  id                 Int       @id @default(autoincrement())
+  companyName        String
+  companyCode        String    @unique
+  address            String?
+  city               String?
+  postalCode         String?
+  phone              String?
+  email              String?
+  fiscalYearStart    Int       @default(1)
+  isActive           Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   // Relationships
-  bookings    Booking[]
-  activityLogs ActivityLog[]
+  users              User[]
+  chartOfAccounts    ChartOfAccounts[]
+  transactions       Transaction[]
+  journalEntries     JournalEntry[]
+  accountBalances    AccountBalance[]
+  financialReports   FinancialReport[]
+
+  @@map("companies")
+}
+
+model User {
+  id                 Int       @id @default(autoincrement())
+  email              String    @unique
+  name               String
+  phone              String?
+  password           String
+  role               String    @default("user")
+  department         String?
+  isActive           Boolean   @default(true)
+  lastLogin          DateTime?
+  companyId          Int?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  company            Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  activityLogs       ActivityLog[]
+  transactions       Transaction[]
+  approvedTransactions Transaction[] @relation("ApprovedBy")
+  journalEntries     JournalEntry[]
+  approvedJournals   JournalEntry[] @relation("ApprovedBy")
+  createdReports     FinancialReport[]
+  finalizedReports   FinancialReport[] @relation("FinalizedBy")
 
   @@map("users")
 }
 
-model Unit {
-  id        Int     @id @default(autoincrement())
-  name      String
-  location  String
-  price     Float
-  status    String  @default("available")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relationships
-  bookings  Booking[]
-
-  @@map("units")
-}
-
-model Booking {
-  id        Int     @id @default(autoincrement())
-  userId    Int
-  unitId    Int
-  status    String  @default("pending")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relationships
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  unit      Unit    @relation(fields: [unitId], references: [id], onDelete: Cascade)
-
-  @@map("bookings")
-}
-
 model ActivityLog {
-  id        Int     @id @default(autoincrement())
-  userId    Int
-  action    String
-  details   String?
-  createdAt DateTime @default(now())
+  id                 Int       @id @default(autoincrement())
+  userId             Int
+  action             String
+  details            String?
+  createdAt          DateTime  @default(now())
 
   // Relationships
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("activity_logs")
+}
+
+
+
+// ==================== ACCOUNTING SYSTEM ====================
+
+// Chart of Accounts (Daftar Akun)
+model ChartOfAccounts {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  accountCode        String    @unique
+  accountName        String
+  accountType        String    // ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE
+  parentId           Int?
+  level              Int
+  isActive           Boolean   @default(true)
+  isCashFlow         Boolean   @default(false)
+  description        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent             ChartOfAccounts? @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children           ChartOfAccounts[] @relation("AccountHierarchy")
+  debitTransactions  Transaction[] @relation("DebitAccount")
+  creditTransactions Transaction[] @relation("CreditAccount")
+  journalLines       JournalEntryLine[]
+  balances           AccountBalance[]
+
+  @@unique([companyId, accountCode])
+  @@index([companyId])
+  @@index([accountType])
+  @@map("chart_of_accounts")
+}
+
+// Transactions (Transaksi)
+model Transaction {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  userId             Int
+  transactionCode    String    @unique
+  transactionDate    DateTime
+  transactionType    String    // PENDAPATAN, PENGELUARAN, TRANSFER, ADJUSTMENT
+  description        String
+  category           String?
+  referenceNo        String?
+  debitAccountId     Int
+  creditAccountId    Int
+  amount             Decimal   @db.Decimal(15, 2)
+  status             String    @default("DRAFT") // DRAFT, PENDING, APPROVED, REJECTED, POSTED
+  approvedBy         Int?
+  approvedAt         DateTime?
+  rejectionReason    String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user               User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  debitAccount       ChartOfAccounts @relation("DebitAccount", fields: [debitAccountId], references: [id])
+  creditAccount      ChartOfAccounts @relation("CreditAccount", fields: [creditAccountId], references: [id])
+  approver           User?     @relation("ApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  journalEntry       JournalEntry?
+
+  @@index([companyId])
+  @@index([transactionDate])
+  @@index([status])
+  @@index([transactionType])
+  @@map("transactions")
+}
+
+// Journal Entries (Jurnal Umum)
+model JournalEntry {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  userId             Int
+  transactionId      Int?      @unique
+  journalDate        DateTime
+  journalNo          String    @unique
+  description        String
+  isPosted           Boolean   @default(false)
+  postedAt           DateTime?
+  approvedBy         Int?
+  approvedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user               User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  transaction        Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  approver           User?     @relation("ApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  lines              JournalEntryLine[]
+
+  @@index([companyId])
+  @@index([journalDate])
+  @@index([isPosted])
+  @@map("journal_entries")
+}
+
+// Journal Entry Lines
+model JournalEntryLine {
+  id                 Int       @id @default(autoincrement())
+  journalEntryId     Int
+  accountId          Int
+  debit              Decimal   @default(0) @db.Decimal(15, 2)
+  credit             Decimal   @default(0) @db.Decimal(15, 2)
+  description        String?
+
+  // Relationships
+  journalEntry       JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account            ChartOfAccounts @relation(fields: [accountId], references: [id])
+
+  @@map("journal_entry_lines")
+}
+
+// Account Balances (Saldo Akun)
+model AccountBalance {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  accountId          Int
+  periodDate         DateTime
+  periodType         String    @default("MONTHLY") // MONTHLY, QUARTERLY, YEARLY
+  openingBalance     Decimal   @default(0) @db.Decimal(15, 2)
+  debitTotal         Decimal   @default(0) @db.Decimal(15, 2)
+  creditTotal        Decimal   @default(0) @db.Decimal(15, 2)
+  closingBalance     Decimal   @default(0) @db.Decimal(15, 2)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  account            ChartOfAccounts @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, accountId, periodDate])
+  @@index([periodDate])
+  @@map("account_balances")
+}
+
+// Financial Reports (Laporan Keuangan)
+model FinancialReport {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int
+  reportType         String    // BALANCE_SHEET, INCOME_STATEMENT, CASH_FLOW
+  reportDate         DateTime
+  periodStart        DateTime
+  periodEnd          DateTime
+  status             String    @default("DRAFT") // DRAFT, FINALIZED, ARCHIVED
+  reportData         Json?     // Legacy: Storing structured data as JSON
+  finalizedBy        Int?
+  finalizedAt        DateTime?
+  notes              String?
+  createdBy          Int
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  creator            User      @relation(fields: [createdBy], references: [id])
+  finalizer          User?     @relation("FinalizedBy", fields: [finalizedBy], references: [id], onDelete: SetNull)
+  balanceSheetItems  BalanceSheetItem[]
+  incomeStatementItems IncomeStatementItem[]
+
+  @@unique([companyId, reportType, periodEnd])
+  @@index([reportDate])
+  @@index([status])
+  @@map("financial_reports")
+}
+
+model BalanceSheetItem {
+  id                 Int       @id @default(autoincrement())
+  reportId           Int
+  accountCode        String    // e.g., "1.1.01.01"
+  accountName        String    // e.g., "Kas besar"
+  balance            Decimal   @default(0) @db.Decimal(15, 2)
+  level              Int       // Hierarchical level (1, 2, 3, 4)
+  parentId           Int?      // Self-referencing parent ID
+  isParent           Boolean   @default(false)
+  sortOrder          Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  report             FinancialReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  parent             BalanceSheetItem? @relation("ItemHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children           BalanceSheetItem[] @relation("ItemHierarchy")
+
+  @@index([reportId])
+  @@map("balance_sheet_items")
+}
+
+model IncomeStatementItem {
+  id                 Int       @id @default(autoincrement())
+  reportId           Int
+  accountCode        String    // e.g., "4.1.01"
+  accountName        String    // e.g., "Pendapatan Penjualan"
+  balance            Decimal   @default(0) @db.Decimal(15, 2)
+  level              Int       // Hierarchical level (1, 2, 3)
+  parentId           Int?      // Self-referencing parent ID
+  isParent           Boolean   @default(false)
+  sortOrder          Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  report             FinancialReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  parent             IncomeStatementItem? @relation("IncomeHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children           IncomeStatementItem[] @relation("IncomeHierarchy")
+
+  @@index([reportId])
+  @@map("income_statement_items")
 }

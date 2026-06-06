@@ -4,8 +4,9 @@ import dotenv from "dotenv";
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/users";
 import activityLogRoutes from "./routes/activityLog";
-import bookingRoutes from "./routes/bookings";
-import unitRoutes from "./routes/units";
+import chartOfAccountsRoutes from "./routes/chartOfAccounts";
+import transactionRoutes from "./routes/transactions";
+import dashboardRoutes from "./routes/dashboard";
 
 dotenv.config();
 
@@ -43,18 +44,22 @@ console.log("🔧 Mounting activity log routes...");
 app.use("/api/activity-logs", activityLogRoutes);
 
 console.log("🔧 Activity log routes mounted");
-console.log("🔧 Mounting booking routes...");
+console.log("🔧 Mounting chart of accounts routes...");
 
-// Booking routes
-app.use("/api/bookings", bookingRoutes);
+// Chart of Accounts routes
+app.use("/api/chart-of-accounts", chartOfAccountsRoutes);
 
-console.log("🔧 Booking routes mounted");
-console.log("🔧 Mounting unit routes...");
+console.log("🔧 Chart of accounts routes mounted");
+console.log("🔧 Mounting transaction routes...");
 
-// Unit routes
-app.use("/api/units", unitRoutes);
+// Transaction routes
+app.use("/api/transactions", transactionRoutes);
 
-console.log("🔧 Unit routes mounted");
+console.log("🔧 Transaction routes mounted");
+console.log("🔧 Mounting dashboard routes...");
+
+// Dashboard & Financial Reports routes
+app.use("/api/dashboard", dashboardRoutes);
 
 // Error handling middleware
 app.use((err: any, req: Request, res: Response, next: any) => {

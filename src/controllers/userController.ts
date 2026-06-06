@@ -13,6 +13,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
         name: true,
         phone: true,
         role: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -43,6 +44,7 @@ export const getUserById = async (req: Request, res: Response) => {
         name: true,
         phone: true,
         role: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -70,7 +72,7 @@ export const getUserById = async (req: Request, res: Response) => {
 // Create user
 export const createUser = async (req: Request, res: Response) => {
   try {
-    const { email, name, password, phone, role } = req.body;
+    const { email, name, password, phone, role, isActive } = req.body;
     
     if (!email || !name || !password) {
       return res.status(400).json({ 
@@ -80,7 +82,7 @@ export const createUser = async (req: Request, res: Response) => {
     }
 
     // Validate role if provided
-    const validRoles = ["admin", "marketing", "manager", "owner", "user"];
+    const validRoles = ["admin", "manager", "owner", "staf"];
     if (role && !validRoles.includes(role)) {
       return res.status(400).json({ 
         success: false, 
@@ -109,6 +111,7 @@ export const createUser = async (req: Request, res: Response) => {
         password: hashedPassword,
         ...(phone && { phone }),
         ...(role && { role }),
+        isActive: isActive !== undefined ? (isActive === true || isActive === "true") : true,
       },
       select: {
         id: true,
@@ -116,6 +119,7 @@ export const createUser = async (req: Request, res: Response) => {
         name: true,
         phone: true,
         role: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -148,17 +152,17 @@ export const createUser = async (req: Request, res: Response) => {
 export const updateUser = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, email, phone, role, password } = req.body;
+    const { name, email, phone, role, password, isActive } = req.body;
     
-    if (!name && !email && !phone && !role && !password) {
+    if (!name && !email && !phone && !role && !password && isActive === undefined) {
       return res.status(400).json({ 
         success: false, 
-        message: "Minimal harus update name, email, phone, role, atau password" 
+        message: "Minimal harus update name, email, phone, role, password, atau isActive" 
       });
     }
 
     // Validate role if provided
-    const validRoles = ["admin", "marketing", "manager", "owner", "user"];
+    const validRoles = ["admin", "manager", "owner", "staf"];
     if (role && !validRoles.includes(role)) {
       return res.status(400).json({ 
         success: false, 
@@ -180,6 +184,7 @@ export const updateUser = async (req: Request, res: Response) => {
         ...(phone && { phone }),
         ...(role && { role }),
         ...(hashedPassword && { password: hashedPassword }),
+        ...(isActive !== undefined && { isActive: isActive === true || isActive === "true" }),
       },
       select: {
         id: true,
@@ -187,6 +192,7 @@ export const updateUser = async (req: Request, res: Response) => {
         name: true,
         phone: true,
         role: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true,
       },

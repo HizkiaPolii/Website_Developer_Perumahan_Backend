@@ -9,16 +9,19 @@ import {
   getRecentActivityLogs,
 } from "../controllers/activityLogController";
 import { authMiddleware } from "../middleware/auth";
+import { roleMiddleware } from "../middleware/role";
 
 const router = Router();
 
-// Protected routes - require authentication
-router.get("/", authMiddleware, getAllActivityLogs);
-router.get("/recent", authMiddleware, getRecentActivityLogs);
-router.get("/role", authMiddleware, getActivityLogsByRole);
-router.get("/action/:action", authMiddleware, getActivityLogsByAction);
-router.get("/user/:userId", authMiddleware, getActivityLogsByUserId);
-router.get("/:id", authMiddleware, getActivityLogById);
-router.post("/", authMiddleware, createActivityLog);
+// Activity log — hanya Admin & Owner boleh baca
+router.get("/", authMiddleware, roleMiddleware("admin", "owner"), getAllActivityLogs);
+router.get("/recent", authMiddleware, roleMiddleware("admin", "owner"), getRecentActivityLogs);
+router.get("/role", authMiddleware, roleMiddleware("admin", "owner"), getActivityLogsByRole);
+router.get("/action/:action", authMiddleware, roleMiddleware("admin", "owner"), getActivityLogsByAction);
+router.get("/user/:userId", authMiddleware, roleMiddleware("admin", "owner"), getActivityLogsByUserId);
+router.get("/:id", authMiddleware, roleMiddleware("admin", "owner"), getActivityLogById);
+
+// Create log — hanya Admin (atau sistem internal)
+router.post("/", authMiddleware, roleMiddleware("admin"), createActivityLog);
 
 export default router;

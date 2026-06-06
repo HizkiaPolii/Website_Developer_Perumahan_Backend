@@ -28,6 +28,13 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
+    if (!user.isActive) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Akun Anda dinonaktifkan. Silakan hubungi Administrator." 
+      });
+    }
+
     // Compare password dengan hash yang tersimpan
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
@@ -114,7 +121,7 @@ export const register = async (req: Request, res: Response) => {
     }
 
     // Validate role if provided
-    const validRoles = ["admin", "marketing", "manager", "owner", "user"];
+    const validRoles = ["admin", "manager", "owner", "staf"];
     if (role && !validRoles.includes(role)) {
       return res.status(400).json({ 
         success: false, 
@@ -181,6 +188,7 @@ export const verifyToken = async (req: Request, res: Response) => {
         name: true,
         phone: true,
         role: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -190,6 +198,13 @@ export const verifyToken = async (req: Request, res: Response) => {
       return res.status(401).json({ 
         success: false, 
         message: "User tidak ditemukan" 
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Akun Anda dinonaktifkan. Silakan hubungi Administrator." 
       });
     }
 
