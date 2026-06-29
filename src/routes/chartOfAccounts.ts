@@ -16,15 +16,15 @@ const router = express.Router();
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
-// Read — Manager & Owner (Owner butuh lihat akun untuk laporan)
-router.get("/", roleMiddleware("manager", "owner"), getAllAccounts);
-router.get("/hierarchy", roleMiddleware("manager", "owner"), getAccountHierarchy);
-router.get("/by-type/:type", roleMiddleware("manager", "owner"), getAccountsByType);
-router.get("/:id", roleMiddleware("manager", "owner"), getAccountById);
+// Read — Teller, Manager & Owner (Owner butuh lihat akun untuk laporan)
+router.get("/", roleMiddleware("teller", "manager", "owner"), getAllAccounts);
+router.get("/hierarchy", roleMiddleware("teller", "manager", "owner"), getAccountHierarchy);
+router.get("/by-type/:type", roleMiddleware("teller", "manager", "owner"), getAccountsByType);
+router.get("/:id", roleMiddleware("teller", "manager", "owner"), getAccountById);
 
-// Write — hanya Manager
-router.post("/", roleMiddleware("manager"), createAccount);
-router.put("/:id", roleMiddleware("manager"), updateAccount);
-router.delete("/:id", roleMiddleware("manager"), deleteAccount);
+// Write — hanya Teller
+router.post("/", roleMiddleware("teller"), createAccount);
+router.put("/:id", roleMiddleware("teller"), updateAccount);
+router.delete("/:id", roleMiddleware("teller"), deleteAccount);
 
 export default router;

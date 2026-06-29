@@ -51,7 +51,7 @@ export interface Company {
 
 // ==================== USER ====================
 
-export type UserRole = 'Admin' | 'Manager' | 'Owner';
+export type UserRole = 'Admin' | 'Manager' | 'Owner' | 'Teller' | 'Staf';
 
 export interface User {
   id: number;

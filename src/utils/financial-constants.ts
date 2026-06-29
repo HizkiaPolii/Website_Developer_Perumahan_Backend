@@ -96,7 +96,9 @@ export const REPORT_TYPE_LABELS: Record<ReportType, string> = {
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
   Admin: 'Administrator',
   Manager: 'Manajer',
-  Owner: 'Direktur'
+  Owner: 'Direktur',
+  Teller: 'Teller',
+  Staf: 'Staf Lapangan'
 };
 
 // ==================== COLORS & STYLING ====================

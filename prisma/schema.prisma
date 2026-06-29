@@ -33,6 +33,7 @@ model Company {
   journalEntries     JournalEntry[]
   accountBalances    AccountBalance[]
   financialReports   FinancialReport[]
+  purchaseRequests   PurchaseRequest[]
 
   @@map("companies")
 }
@@ -60,6 +61,7 @@ model User {
   approvedJournals   JournalEntry[] @relation("ApprovedBy")
   createdReports     FinancialReport[]
   finalizedReports   FinancialReport[] @relation("FinalizedBy")
+  purchaseRequests   PurchaseRequest[] @relation("PRRequester")
 
   @@map("users")
 }
@@ -288,3 +290,37 @@ model IncomeStatementItem {
   @@index([reportId])
   @@map("income_statement_items")
 }
+
+model PurchaseRequest {
+  id                  Int       @id @default(autoincrement())
+  prCode              String    @unique // e.g. PR-2026-001
+  item                String
+  quantity            String
+  amount              Decimal   @db.Decimal(15, 2)
+  department          String?
+  status              String    @default("Pending") // Pending, ACC Manager, ACC Final, Tolak
+  description         String
+  notaNumber          String?   @unique
+  companyId           Int
+  requesterId         Int
+  
+  // Tracking
+  approvedByManager   String?
+  approvedByManagerAt DateTime?
+  approvedByOwner     String?
+  approvedByOwnerAt   DateTime?
+  rejectedBy          String?
+  rejectedAt          DateTime?
+  rejectionReason     String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relationships
+  company             Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  requester           User      @relation("PRRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([status])
+  @@map("purchase_requests")
+}
+

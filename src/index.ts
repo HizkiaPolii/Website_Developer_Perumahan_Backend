@@ -7,6 +7,9 @@ import activityLogRoutes from "./routes/activityLog";
 import chartOfAccountsRoutes from "./routes/chartOfAccounts";
 import transactionRoutes from "./routes/transactions";
 import dashboardRoutes from "./routes/dashboard";
+import journalEntryRoutes from "./routes/journalEntries";
+import purchaseRequestRoutes from "./routes/purchaseRequests";
+import { startEODScheduler } from "./services/eodService";
 
 dotenv.config();
 
@@ -56,10 +59,19 @@ console.log("🔧 Mounting transaction routes...");
 app.use("/api/transactions", transactionRoutes);
 
 console.log("🔧 Transaction routes mounted");
+console.log("🔧 Mounting journal entry routes...");
+
+// Journal Entry routes
+app.use("/api/journal-entries", journalEntryRoutes);
+
+console.log("🔧 Journal entry routes mounted");
 console.log("🔧 Mounting dashboard routes...");
 
 // Dashboard & Financial Reports routes
 app.use("/api/dashboard", dashboardRoutes);
+
+// Purchase Request routes
+app.use("/api/purchase-requests", purchaseRequestRoutes);
 
 // Error handling middleware
 app.use((err: any, req: Request, res: Response, next: any) => {

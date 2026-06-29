@@ -82,7 +82,7 @@ export const createUser = async (req: Request, res: Response) => {
     }
 
     // Validate role if provided
-    const validRoles = ["admin", "manager", "owner", "staf"];
+    const validRoles = ["admin", "manager", "owner", "staf", "teller"];
     if (role && !validRoles.includes(role)) {
       return res.status(400).json({ 
         success: false, 
@@ -162,7 +162,7 @@ export const updateUser = async (req: Request, res: Response) => {
     }
 
     // Validate role if provided
-    const validRoles = ["admin", "manager", "owner", "staf"];
+    const validRoles = ["admin", "manager", "owner", "staf", "teller"];
     if (role && !validRoles.includes(role)) {
       return res.status(400).json({ 
         success: false, 
@@ -201,10 +201,17 @@ export const updateUser = async (req: Request, res: Response) => {
     // Log activity - updating user
     const currentUserId = req.user?.id || 0;
     const activityDetails = createActivityDetails("UPDATE_USER", { 
-      userId: parseInt(id as string),
-      name,
-      email,
-      role
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      updatedFields: {
+        name: !!name,
+        email: !!email,
+        phone: !!phone,
+        role: !!role,
+        password: !!password,
+        isActive: isActive !== undefined
+      }
     });
     await logActivity(currentUserId, "UPDATE_USER", activityDetails);
 

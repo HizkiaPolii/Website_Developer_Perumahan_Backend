@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
+import { runEODForCompany } from "../services/eodService";
 
 const prisma = new PrismaClient();
 
@@ -891,4 +892,36 @@ export const createFinancialReport = async (req: Request, res: Response) => {
     });
   }
 };
+
+export const triggerEOD = async (req: Request, res: Response) => {
+  try {
+    const { companyId, date } = req.body;
+    const userId = req.user?.id || 1;
+
+    if (!companyId || !date) {
+      return res.status(400).json({
+        success: false,
+        message: "companyId dan date harus diisi",
+      });
+    }
+
+    const parsedCompanyId = parseInt(companyId.toString(), 10);
+    const targetDate = new Date(date);
+
+    await runEODForCompany(parsedCompanyId, targetDate, userId);
+
+    res.json({
+      success: true,
+      message: `End of Day untuk tanggal ${targetDate.toLocaleDateString("id-ID")} berhasil dijalankan.`,
+    });
+  } catch (error: any) {
+    console.error("Error triggering EOD:", error);
+    res.status(500).json({
+      success: false,
+      message: "Gagal menjalankan End of Day",
+      error: error.message,
+    });
+  }
+};
+
 

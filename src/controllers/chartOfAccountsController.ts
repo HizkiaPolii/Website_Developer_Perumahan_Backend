@@ -107,14 +107,17 @@ export const createAccount = async (req: Request, res: Response) => {
       });
     }
 
+    const parsedCompanyId = parseInt(companyId.toString(), 10);
+    const parsedParentId = parentId ? parseInt(parentId.toString(), 10) : null;
+
     const account = await prisma.chartOfAccounts.create({
       data: {
-        companyId,
+        companyId: parsedCompanyId,
         accountCode,
         accountName,
         accountType,
-        parentId: parentId || null,
-        level,
+        parentId: parsedParentId,
+        level: parseInt(level.toString(), 10),
         isCashFlow: isCashFlow || false,
         description,
       },

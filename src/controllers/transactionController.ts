@@ -183,10 +183,14 @@ export const createTransaction = async (req: Request, res: Response) => {
       });
     }
 
+    const parsedCompanyId = parseInt(companyId.toString(), 10);
+    const parsedUserId = parseInt(userId.toString(), 10);
+    const parsedDebitAccountId = parseInt(debitAccountId.toString(), 10);
+    const parsedCreditAccountId = parseInt(creditAccountId.toString(), 10);
+
     // Check if period is locked
-    const compId = parseInt(companyId.toString());
     const txDate = new Date(transactionDate);
-    const locked = await isPeriodLocked(compId, txDate);
+    const locked = await isPeriodLocked(parsedCompanyId, txDate);
     if (locked) {
       return res.status(400).json({
         success: false,
@@ -197,10 +201,10 @@ export const createTransaction = async (req: Request, res: Response) => {
     // Validate accounts exist
     const [debitAccount, creditAccount] = await Promise.all([
       prisma.chartOfAccounts.findUnique({
-        where: { id: debitAccountId },
+        where: { id: parsedDebitAccountId },
       }),
       prisma.chartOfAccounts.findUnique({
-        where: { id: creditAccountId },
+        where: { id: parsedCreditAccountId },
       }),
     ]);
 
@@ -212,22 +216,22 @@ export const createTransaction = async (req: Request, res: Response) => {
     }
 
     // Generate transaction code
-    const transactionCode = await generateTransactionCode(companyId, transactionType);
+    const transactionCode = await generateTransactionCode(parsedCompanyId, transactionType);
 
     const transaction = await prisma.transaction.create({
       data: {
-        companyId,
-        userId,
+        companyId: parsedCompanyId,
+        userId: parsedUserId,
         transactionCode,
         transactionDate: new Date(transactionDate),
         transactionType,
         description,
         category: category || null,
         referenceNo: referenceNo || null,
-        debitAccountId,
-        creditAccountId,
+        debitAccountId: parsedDebitAccountId,
+        creditAccountId: parsedCreditAccountId,
         amount: parseFloat(amount),
-        status: "DRAFT",
+        status: "PENDING",
       },
       include: {
         debitAccount: true,
@@ -275,10 +279,10 @@ export const updateTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    if (transaction.status !== "DRAFT") {
+    if (transaction.status !== "DRAFT" && transaction.status !== "REJECTED") {
       return res.status(400).json({
         success: false,
-        message: "Can only update DRAFT transactions",
+        message: "Can only update DRAFT or REJECTED transactions",
       });
     }
 
@@ -349,10 +353,10 @@ export const deleteTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    if (transaction.status !== "DRAFT") {
+    if (transaction.status !== "DRAFT" && transaction.status !== "REJECTED") {
       return res.status(400).json({
         success: false,
-        message: "Can only delete DRAFT transactions",
+        message: "Can only delete DRAFT or REJECTED transactions",
       });
     }
 
@@ -387,7 +391,9 @@ export const approveTransaction = async (req: Request, res: Response) => {
     const { id } = req.params as { id: string };
     const { approvedBy } = req.body;
 
-    if (!approvedBy) {
+    const approverUserId = approvedBy || req.user?.id;
+
+    if (!approverUserId) {
       return res.status(400).json({
         success: false,
         message: "approvedBy is required",
@@ -396,6 +402,10 @@ export const approveTransaction = async (req: Request, res: Response) => {
 
     const transaction = await prisma.transaction.findUnique({
       where: { id: parseInt(id) },
+      include: {
+        debitAccount: true,
+        creditAccount: true,
+      }
     });
 
     if (!transaction) {
@@ -412,25 +422,76 @@ export const approveTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    const updatedTransaction = await prisma.transaction.update({
-      where: { id: parseInt(id) },
-      data: {
-        status: "APPROVED",
-        approvedBy,
-        approvedAt: new Date(),
-      },
-      include: {
-        debitAccount: true,
-        creditAccount: true,
-        user: { select: { id: true, name: true, email: true } },
-        approver: { select: { id: true, name: true, email: true } },
-      },
+    // Check if period is locked
+    if (await isPeriodLocked(transaction.companyId, transaction.transactionDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Transaksi tidak dapat disetujui karena periode laporan keuangan untuk tanggal transaksi ini telah difinalisasi (Locked).",
+      });
+    }
+
+    const journalNo = `JE/${transaction.companyId}/${Date.now()}`;
+    const approverId = parseInt(approverUserId.toString());
+
+    // Generate journal entry and lines, and post transaction in a transaction block
+    const result = await prisma.$transaction(async (tx) => {
+      // Create journal entry and lines
+      const journalEntry = await tx.journalEntry.create({
+        data: {
+          companyId: transaction.companyId,
+          userId: transaction.userId,
+          transactionId: transaction.id,
+          journalDate: new Date(),
+          journalNo,
+          description: transaction.description,
+          lines: {
+            createMany: {
+              data: [
+                {
+                  accountId: transaction.debitAccountId,
+                  debit: transaction.amount,
+                  credit: 0,
+                  description: transaction.description,
+                },
+                {
+                  accountId: transaction.creditAccountId,
+                  debit: 0,
+                  credit: transaction.amount,
+                  description: transaction.description,
+                },
+              ],
+            },
+          },
+        },
+        include: {
+          lines: { include: { account: true } },
+        },
+      });
+
+      // Update transaction status to POSTED
+      const updatedTrx = await tx.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: "POSTED",
+          approvedBy: approverId,
+          approvedAt: new Date(),
+        },
+        include: {
+          debitAccount: true,
+          creditAccount: true,
+          user: { select: { id: true, name: true, email: true } },
+          approver: { select: { id: true, name: true, email: true } },
+          journalEntry: { include: { lines: { include: { account: true } } } },
+        },
+      });
+
+      return { transaction: updatedTrx, journalEntry };
     });
 
     res.json({
       success: true,
-      message: "Transaction approved successfully",
-      data: updatedTransaction,
+      message: "Transaction approved and posted successfully",
+      data: result.transaction,
     });
   } catch (error: any) {
     res.status(500).json({

@@ -59,10 +59,19 @@ export const createActivityDetails = (action: string, data: any): string => {
       details.push(`Role: ${data?.role}`);
       break;
     case "UPDATE_USER":
-      details.push(`Updated User ID: ${data?.userId}`);
-      if (data?.name) details.push(`Name: ${data?.name}`);
-      if (data?.email) details.push(`Email: ${data?.email}`);
-      if (data?.role) details.push(`Role: ${data?.role}`);
+      details.push(`User: ${data?.email || "Unknown"} (ID: ${data?.userId})`);
+      const fields: string[] = [];
+      const uf = data?.updatedFields;
+      if (uf?.name) fields.push("Nama");
+      if (uf?.email) fields.push("Email");
+      if (uf?.phone) fields.push("No. Telepon");
+      if (uf?.role) fields.push("Role");
+      if (uf?.password) fields.push("Password");
+      if (uf?.isActive) fields.push("Status Aktif");
+      
+      if (fields.length > 0) {
+        details.push(`Mengubah: ${fields.join(", ")}`);
+      }
       break;
     case "DELETE_USER":
       details.push(`Deleted User ID: ${data?.userId}`);
