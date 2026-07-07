@@ -6,14 +6,13 @@ import { logActivity, createActivityDetails } from "../utils/activityLogger";
 
 // Login user
 export const login = async (req: Request, res: Response) => {
-  console.log("🔓 LOGIN FUNCTION CALLED");
   try {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Email dan password harus diisi" 
+      return res.status(400).json({
+        success: false,
+        message: "Email dan password harus diisi"
       });
     }
 
@@ -22,79 +21,59 @@ export const login = async (req: Request, res: Response) => {
     });
 
     if (!user) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Email atau password salah" 
+      return res.status(401).json({
+        success: false,
+        message: "Email atau password salah"
       });
     }
 
     if (!user.isActive) {
-      return res.status(403).json({ 
-        success: false, 
-        message: "Akun Anda dinonaktifkan. Silakan hubungi Administrator." 
+      return res.status(403).json({
+        success: false,
+        message: "Akun Anda dinonaktifkan. Silakan hubungi Administrator."
       });
     }
 
     // Compare password dengan hash yang tersimpan
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Email atau password salah" 
+      return res.status(401).json({
+        success: false,
+        message: "Email atau password salah"
       });
     }
 
     // Generate JWT token
-    try {
-      const jwtSecret = (process.env.JWT_SECRET || "your-secret-key") as string;
-      const jwtExpire = process.env.JWT_EXPIRE || "7d";
-      
-      console.log("🔐 JWT Secret:", jwtSecret);
-      console.log("🔐 JWT Expire:", jwtExpire);
-      
-      const options: SignOptions = {
-        expiresIn: jwtExpire as any,
-      };
-      
-      const token = jwt.sign(
-        { id: user.id, email: user.email, role: user.role },
-        jwtSecret,
-        options
-      );
-      
-      console.log("✅ Token generated:", token);
-
-      // Log activity
-      const activityDetails = createActivityDetails("LOGIN", { email: user.email });
-      await logActivity(user.id, "LOGIN", activityDetails);
-
-      res.json({ 
-        success: true, 
-        message: "Login berhasil",
-        token,
-        user: { 
-          id: user.id, 
-          email: user.email, 
-          name: user.name,
-          phone: user.phone,
-          role: user.role
-        } 
-      });
-    } catch (tokenError) {
-      console.error("❌ Token generation error:", tokenError);
-      res.json({ 
-        success: true, 
-        message: "Login berhasil (token error)",
-        token: null,
-        user: { 
-          id: user.id, 
-          email: user.email, 
-          name: user.name,
-          phone: user.phone,
-          role: user.role
-        } 
-      });
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      return res.status(500).json({ success: false, message: "Konfigurasi server tidak lengkap" });
     }
+
+    const jwtExpire = process.env.JWT_EXPIRE || "7d";
+    const options: SignOptions = { expiresIn: jwtExpire as any };
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      jwtSecret,
+      options
+    );
+
+    // Log activity
+    const activityDetails = createActivityDetails("LOGIN", { email: user.email });
+    await logActivity(user.id, "LOGIN", activityDetails);
+
+    res.json({
+      success: true,
+      message: "Login berhasil",
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        phone: user.phone,
+        role: user.role
+      }
+    });
   } catch (error) {
     console.error("Login error:", error);
     res.status(500).json({ success: false, message: "Gagal login" });

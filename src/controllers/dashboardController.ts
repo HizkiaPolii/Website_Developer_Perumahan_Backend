@@ -15,6 +15,14 @@ export const getFinancialStats = async (req: Request, res: Response) => {
       });
     }
 
+    const companyIdInt = parseInt(companyId as string);
+    if (isNaN(companyIdInt)) {
+      return res.status(400).json({
+        success: false,
+        message: "companyId harus berupa angka",
+      });
+    }
+
     const start = startDate
       ? new Date(startDate as string)
       : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -26,7 +34,7 @@ export const getFinancialStats = async (req: Request, res: Response) => {
     // Get revenue transactions
     const revenueTransactions = await prisma.transaction.findMany({
       where: {
-        companyId: parseInt(companyId as string),
+        companyId: companyIdInt,
         transactionType: "PENDAPATAN",
         status: "POSTED",
         transactionDate: {
@@ -40,7 +48,7 @@ export const getFinancialStats = async (req: Request, res: Response) => {
     // Get expense transactions
     const expenseTransactions = await prisma.transaction.findMany({
       where: {
-        companyId: parseInt(companyId as string),
+        companyId: companyIdInt,
         transactionType: "PENGELUARAN",
         status: "POSTED",
         transactionDate: {
@@ -68,7 +76,7 @@ export const getFinancialStats = async (req: Request, res: Response) => {
     // Get cash balance (from ASSET accounts)
     const cashAccounts = await prisma.chartOfAccounts.findMany({
       where: {
-        companyId: parseInt(companyId as string),
+        companyId: companyIdInt,
         accountType: "ASSET",
         accountCode: { contains: "1.1" }, // Current assets
       },
@@ -134,9 +142,14 @@ export const getRecentTransactions = async (req: Request, res: Response) => {
       });
     }
 
+    const companyIdInt = parseInt(companyId as string);
+    if (isNaN(companyIdInt)) {
+      return res.status(400).json({ success: false, message: "companyId harus berupa angka" });
+    }
+
     const transactions = await prisma.transaction.findMany({
       where: {
-        companyId: parseInt(companyId as string),
+        companyId: companyIdInt,
         status: "POSTED",
       },
       include: {
@@ -175,6 +188,9 @@ export const getDashboardSummary = async (req: Request, res: Response) => {
     }
 
     const companyIdInt = parseInt(companyId as string);
+    if (isNaN(companyIdInt)) {
+      return res.status(400).json({ success: false, message: "companyId harus berupa angka" });
+    }
 
     // Get current month
     const now = new Date();

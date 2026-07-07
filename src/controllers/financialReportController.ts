@@ -9,11 +9,17 @@ const prisma = new PrismaClient();
 export const generateBalanceSheet = async (req: Request, res: Response) => {
   try {
     // Accept from body OR query for flexibility
-    const companyId = req.body.companyId || req.query.companyId || 1;
+    const companyId = req.body.companyId || req.query.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: "companyId diperlukan" });
+    }
     const periodEnd = req.body.periodEnd || req.body.periodStart || req.query.periodEnd || new Date().toISOString();
 
     const periodEndDate = new Date(periodEnd);
-    const userId = req.user?.id || 1;
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
 
     // Cek apakah laporan yang sudah difinalisasi sudah ada di database
     const existingReport = await prisma.financialReport.findUnique({
@@ -206,13 +212,19 @@ export const generateBalanceSheet = async (req: Request, res: Response) => {
 // ==================== REAL-TIME INCOME STATEMENT GENERATION ====================
 export const generateIncomeStatement = async (req: Request, res: Response) => {
   try {
-    const companyId = req.body.companyId || req.query.companyId || 1;
+    const companyId = req.body.companyId || req.query.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: "companyId diperlukan" });
+    }
     const periodStart = req.body.periodStart || req.query.periodStart;
     const periodEnd = req.body.periodEnd || req.query.periodEnd;
 
     const start = periodStart ? new Date(periodStart) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const end = periodEnd ? new Date(periodEnd) : new Date();
-    const userId = req.user?.id || 1;
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
 
     // Cek apakah laporan yang sudah difinalisasi sudah ada di database
     const existingReport = await prisma.financialReport.findUnique({
@@ -816,7 +828,10 @@ export const deleteFinancialReport = async (req: Request, res: Response) => {
 export const createFinancialReport = async (req: Request, res: Response) => {
   try {
     const { companyId, reportType, periodStart, periodEnd, reportData, notes } = req.body;
-    const userId = req.user?.id || 1;
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
 
     if (!companyId || !reportType || !periodStart || !periodEnd || !reportData) {
       return res.status(400).json({
@@ -896,7 +911,10 @@ export const createFinancialReport = async (req: Request, res: Response) => {
 export const triggerEOD = async (req: Request, res: Response) => {
   try {
     const { companyId, date } = req.body;
-    const userId = req.user?.id || 1;
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
 
     if (!companyId || !date) {
       return res.status(400).json({

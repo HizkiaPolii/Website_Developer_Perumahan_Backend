@@ -94,6 +94,7 @@ model ChartOfAccounts {
   level              Int
   isActive           Boolean   @default(true)
   isCashFlow         Boolean   @default(false)
+  isFixedAsset       Boolean   @default(false)
   description        String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt

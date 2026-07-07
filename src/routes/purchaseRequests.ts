@@ -16,25 +16,25 @@ const router = Router();
 // Apply authMiddleware to all routes
 router.use(authMiddleware);
 
-// Retrieve all purchase requests (accessible by any logged-in user)
-router.get("/", getAllPurchaseRequests);
+// Lihat semua request — Staf, Manager & Owner
+router.get("/", roleMiddleware("staf", "manager", "owner"), getAllPurchaseRequests);
 
-// Retrieve single purchase request details
-router.get("/:id", getPurchaseRequestById);
+// Lihat detail request — Staf, Manager & Owner
+router.get("/:id", roleMiddleware("staf", "manager", "owner"), getPurchaseRequestById);
 
-// Create a new purchase request (accessible by staf, teller, admin, manager, owner)
-router.post("/", roleMiddleware("staf", "teller", "admin", "manager", "owner"), createPurchaseRequest);
+// Buat request pengadaan — hanya Staf
+router.post("/", roleMiddleware("staf"), createPurchaseRequest);
 
-// Validate/Approve at Manager level (accessible by manager, owner, admin)
-router.post("/:id/approve-manager", roleMiddleware("manager", "owner", "admin"), approvePurchaseRequestManager);
+// Approve level Manager — hanya Manager
+router.post("/:id/approve-manager", roleMiddleware("manager"), approvePurchaseRequestManager);
 
-// Final approve at Owner level (accessible by owner, admin)
-router.post("/:id/approve-owner", roleMiddleware("owner", "admin"), approvePurchaseRequestOwner);
+// Final approval — hanya Owner
+router.post("/:id/approve-owner", roleMiddleware("owner"), approvePurchaseRequestOwner);
 
-// Reject request (accessible by manager, owner, admin)
-router.post("/:id/reject", roleMiddleware("manager", "owner", "admin"), rejectPurchaseRequest);
+// Tolak request — Manager atau Owner
+router.post("/:id/reject", roleMiddleware("manager", "owner"), rejectPurchaseRequest);
 
-// Delete request (accessible by creator/admin)
-router.delete("/:id", deletePurchaseRequest);
+// Hapus request — hanya Staf (pembuat request)
+router.delete("/:id", roleMiddleware("staf"), deletePurchaseRequest);
 
 export default router;

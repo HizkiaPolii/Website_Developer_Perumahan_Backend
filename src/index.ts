@@ -9,6 +9,7 @@ import transactionRoutes from "./routes/transactions";
 import dashboardRoutes from "./routes/dashboard";
 import journalEntryRoutes from "./routes/journalEntries";
 import purchaseRequestRoutes from "./routes/purchaseRequests";
+import spkRoutes from "./routes/spk";
 import { startEODScheduler } from "./services/eodService";
 
 dotenv.config();
@@ -17,8 +18,18 @@ const app: Express = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
+const allowedOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(",").map(o => o.trim())
+  : ["http://localhost:3000"];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:3000",
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true,
 }));
 app.use(express.json());
@@ -29,49 +40,32 @@ app.get("/api/health", (req: Request, res: Response) => {
   res.json({ status: "Server is running", timestamp: new Date() });
 });
 
-console.log("🔧 Mounting auth routes...");
-
 // Auth routes
 app.use("/api/auth", authRoutes);
-
-console.log("🔧 Auth routes mounted");
-console.log("🔧 Mounting user routes...");
 
 // User routes
 app.use("/api/users", userRoutes);
 
-console.log("🔧 User routes mounted");
-console.log("🔧 Mounting activity log routes...");
-
 // Activity Log routes
 app.use("/api/activity-logs", activityLogRoutes);
-
-console.log("🔧 Activity log routes mounted");
-console.log("🔧 Mounting chart of accounts routes...");
 
 // Chart of Accounts routes
 app.use("/api/chart-of-accounts", chartOfAccountsRoutes);
 
-console.log("🔧 Chart of accounts routes mounted");
-console.log("🔧 Mounting transaction routes...");
-
 // Transaction routes
 app.use("/api/transactions", transactionRoutes);
 
-console.log("🔧 Transaction routes mounted");
-console.log("🔧 Mounting journal entry routes...");
-
 // Journal Entry routes
 app.use("/api/journal-entries", journalEntryRoutes);
-
-console.log("🔧 Journal entry routes mounted");
-console.log("🔧 Mounting dashboard routes...");
 
 // Dashboard & Financial Reports routes
 app.use("/api/dashboard", dashboardRoutes);
 
 // Purchase Request routes
 app.use("/api/purchase-requests", purchaseRequestRoutes);
+
+// SPK (Sistem Pendukung Keputusan) routes
+app.use("/api/spk", spkRoutes);
 
 // Error handling middleware
 app.use((err: any, req: Request, res: Response, next: any) => {

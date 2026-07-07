@@ -84,6 +84,7 @@ export const createAccount = async (req: Request, res: Response) => {
       parentId,
       level,
       isCashFlow,
+      isFixedAsset,
       description,
     } = req.body;
 
@@ -119,6 +120,7 @@ export const createAccount = async (req: Request, res: Response) => {
         parentId: parsedParentId,
         level: parseInt(level.toString(), 10),
         isCashFlow: isCashFlow || false,
+        isFixedAsset: isFixedAsset || false,
         description,
       },
     });
@@ -144,6 +146,7 @@ export const updateAccount = async (req: Request, res: Response) => {
     const {
       accountName,
       isCashFlow,
+      isFixedAsset,
       description,
       isActive,
     } = req.body;
@@ -153,6 +156,7 @@ export const updateAccount = async (req: Request, res: Response) => {
       data: {
         ...(accountName && { accountName }),
         ...(isCashFlow !== undefined && { isCashFlow }),
+        ...(isFixedAsset !== undefined && { isFixedAsset }),
         ...(description !== undefined && { description }),
         ...(isActive !== undefined && { isActive }),
       },

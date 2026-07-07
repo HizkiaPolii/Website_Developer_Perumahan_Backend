@@ -32,10 +32,10 @@ const router = express.Router();
 router.use(authMiddleware);
 
 // ==================== DASHBOARD ====================
-// Dashboard stats — semua role boleh akses
-router.get("/stats", getFinancialStats);
+// Dashboard stats — hanya Teller, Manager & Owner (Staf tidak butuh data keuangan)
+router.get("/stats", roleMiddleware("teller", "manager", "owner"), getFinancialStats);
 router.get("/recent-transactions", roleMiddleware("teller", "manager", "owner"), getRecentTransactions);
-router.get("/summary", getDashboardSummary);
+router.get("/summary", roleMiddleware("teller", "manager", "owner"), getDashboardSummary);
 
 // ==================== FINANCIAL REPORTS ====================
 // Read — Teller, Manager & Owner

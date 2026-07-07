@@ -121,7 +121,7 @@ export async function buildFinancialReportsForDate(companyId: number, date: Date
     parentId: acc.parentId ? acc.parentId.toString() : null,
     isCash: acc.isCashFlow || false,
     isDrawing: acc.accountName.toLowerCase().includes("prive") || acc.accountCode.startsWith("3.1.02") || acc.accountCode.startsWith("3.1.01.02"),
-    isFixedAsset: acc.accountCode.startsWith("1.2"),
+    isFixedAsset: acc.isFixedAsset || false,
   }));
 
   // 2. Fetch all approved/posted transactions up to target date

@@ -315,6 +315,8 @@ export const updateTransaction = async (req: Request, res: Response) => {
         ...(debitAccountId && { debitAccountId }),
         ...(creditAccountId && { creditAccountId }),
         ...(amount && { amount: parseFloat(amount) }),
+        status: "PENDING",
+        rejectionReason: null,
       },
       include: {
         debitAccount: true,
@@ -353,10 +355,10 @@ export const deleteTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    if (transaction.status !== "DRAFT" && transaction.status !== "REJECTED") {
+    if (!["DRAFT", "PENDING", "REJECTED"].includes(transaction.status)) {
       return res.status(400).json({
         success: false,
-        message: "Can only delete DRAFT or REJECTED transactions",
+        message: "Hanya transaksi berstatus DRAFT, PENDING, atau REJECTED yang dapat dihapus",
       });
     }
 

@@ -26,7 +26,13 @@ export const authMiddleware = async (
       });
     }
 
-    const jwtSecret = process.env.JWT_SECRET || "your-secret-key";
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      return res.status(500).json({
+        success: false,
+        message: "Konfigurasi server tidak valid",
+      });
+    }
     const decoded = jwt.verify(token, jwtSecret) as any;
     
     // Check user active status in database
@@ -52,10 +58,9 @@ export const authMiddleware = async (
     req.user = decoded;
     next();
   } catch (error) {
-    console.error("Auth error:", error);
-    res.status(401).json({ 
-      success: false, 
-      message: "Token tidak valid" 
+    res.status(401).json({
+      success: false,
+      message: "Token tidak valid"
     });
   }
 };
