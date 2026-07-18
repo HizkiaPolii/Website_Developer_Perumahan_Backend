@@ -164,10 +164,28 @@ export const updateUser = async (req: Request, res: Response) => {
     // Validate role if provided
     const validRoles = ["admin", "manager", "owner", "staf", "teller"];
     if (role && !validRoles.includes(role)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Role harus salah satu dari: ${validRoles.join(", ")}` 
+      return res.status(400).json({
+        success: false,
+        message: `Role harus salah satu dari: ${validRoles.join(", ")}`
       });
+    }
+
+    // Cegah admin menonaktifkan atau menurunkan role akun sendiri yang
+    // sedang login — kalau ini satu-satunya admin, itu akan mengunci
+    // semua orang dari fitur admin tanpa cara masuk lagi.
+    if (req.user?.id === parseInt(id as string)) {
+      if (isActive === false || isActive === "false") {
+        return res.status(400).json({
+          success: false,
+          message: "Tidak dapat menonaktifkan akun sendiri yang sedang login",
+        });
+      }
+      if (role && role !== req.user?.role) {
+        return res.status(400).json({
+          success: false,
+          message: "Tidak dapat mengubah role akun sendiri yang sedang login",
+        });
+      }
     }
 
     // Hash password jika di-update
@@ -233,8 +251,33 @@ export const updateUser = async (req: Request, res: Response) => {
 export const deleteUser = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const userId = parseInt(id as string);
+
+    if (req.user?.id === userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Tidak dapat menghapus akun sendiri yang sedang login",
+      });
+    }
+
+    // User yang sudah punya riwayat transaksi/jurnal/laporan tidak boleh
+    // dihapus permanen (akan gagal karena foreign key) — arahkan ke
+    // nonaktifkan (isActive: false) supaya riwayatnya tetap utuh.
+    const [trxCount, journalCount, reportCount] = await Promise.all([
+      prisma.transaction.count({ where: { OR: [{ userId }, { approvedBy: userId }] } }),
+      prisma.journalEntry.count({ where: { OR: [{ userId }, { approvedBy: userId }] } }),
+      prisma.financialReport.count({ where: { OR: [{ createdBy: userId }, { finalizedBy: userId }] } }),
+    ]);
+
+    if (trxCount > 0 || journalCount > 0 || reportCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "User ini sudah memiliki riwayat transaksi/jurnal/laporan dan tidak dapat dihapus permanen. Nonaktifkan user ini saja (toggle status) untuk mencabut aksesnya.",
+      });
+    }
+
     const user = await prisma.user.delete({
-      where: { id: parseInt(id as string) },
+      where: { id: userId },
     });
 
     // Log activity - deleting user

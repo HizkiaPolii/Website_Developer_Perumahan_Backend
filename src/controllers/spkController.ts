@@ -48,18 +48,25 @@ export const getAnalisisKinerja = async (req: Request, res: Response) => {
     const start = new Date(sy, sm - 1, 1, 0, 0, 0, 0);
     const end   = new Date(ey, em, 0, 23, 59, 59, 999);
 
-    // Ambil akun kas
+    // Ambil akun kas, pendapatan & beban
     const cashAccounts = await prisma.chartOfAccounts.findMany({
       where: { companyId: cid, isCashFlow: true, isActive: true },
       select: { id: true },
     });
     const cashIds = new Set(cashAccounts.map((a) => a.id));
 
+    const revenueExpenseAccounts = await prisma.chartOfAccounts.findMany({
+      where: { companyId: cid, accountType: { in: ["REVENUE", "EXPENSE"] }, isActive: true },
+      select: { id: true, accountType: true },
+    });
+    const revenueIds = new Set(revenueExpenseAccounts.filter((a) => a.accountType === "REVENUE").map((a) => a.id));
+    const expenseIds = new Set(revenueExpenseAccounts.filter((a) => a.accountType === "EXPENSE").map((a) => a.id));
+
     // Saldo kas kumulatif sebelum periode
     const prevTrx = await prisma.transaction.findMany({
       where: {
         companyId: cid,
-        status: { in: ["POSTED", "APPROVED"] },
+        status: "POSTED",
         transactionDate: { lt: start },
       },
       select: { debitAccountId: true, creditAccountId: true, amount: true },
@@ -77,7 +84,7 @@ export const getAnalisisKinerja = async (req: Request, res: Response) => {
     const trxInRange = await prisma.transaction.findMany({
       where: {
         companyId: cid,
-        status: { in: ["POSTED", "APPROVED"] },
+        status: "POSTED",
         transactionDate: { gte: start, lte: end },
       },
       select: {
@@ -105,11 +112,17 @@ export const getAnalisisKinerja = async (req: Request, res: Response) => {
         return d.getFullYear() === year && d.getMonth() + 1 === month;
       });
 
+      // Pendapatan/beban dihitung dari arah debit-kredit akun sungguhan
+      // (REVENUE/EXPENSE), bukan dari label transactionType — supaya
+      // koreksi/retur (mis. debit ke akun Pendapatan) ikut mengurangi,
+      // bukan malah dijumlahkan sebagai pendapatan tambahan.
       let pendapatan = 0, beban = 0, kasIn = 0, kasOut = 0;
       monthTrx.forEach((t) => {
         const a = parseFloat(t.amount.toString());
-        if (t.transactionType === "PENDAPATAN") pendapatan += a;
-        if (t.transactionType === "PENGELUARAN") beban += a;
+        if (revenueIds.has(t.creditAccountId)) pendapatan += a;
+        if (revenueIds.has(t.debitAccountId)) pendapatan -= a;
+        if (expenseIds.has(t.debitAccountId)) beban += a;
+        if (expenseIds.has(t.creditAccountId)) beban -= a;
         if (cashIds.has(t.debitAccountId)) kasIn += a;
         if (cashIds.has(t.creditAccountId)) kasOut += a;
       });
@@ -166,11 +179,7 @@ export const getAnalisisKinerja = async (req: Request, res: Response) => {
       const r3 = m.c3 > 0 ? minC3 / m.c3 : 1;
       const r4 = m.c4 / maxC4;
 
-      // Jika tidak ada bulan sebelumnya, bobot C2 dialihkan ke C1
-      const w1 = m.c2 !== null ? BOBOT.c1 : BOBOT.c1 + BOBOT.c2;
-      const w2 = m.c2 !== null ? BOBOT.c2 : 0;
-
-      const skor = w1 * r1 + w2 * r2 + BOBOT.c3 * r3 + BOBOT.c4 * r4;
+      const skor = BOBOT.c1 * r1 + BOBOT.c2 * r2 + BOBOT.c3 * r3 + BOBOT.c4 * r4;
 
       return {
         periode: m.periode,

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
+import { logActivity } from "../utils/activityLogger";
 
 const prisma = new PrismaClient();
 
@@ -110,20 +111,86 @@ export const createAccount = async (req: Request, res: Response) => {
 
     const parsedCompanyId = parseInt(companyId.toString(), 10);
     const parsedParentId = parentId ? parseInt(parentId.toString(), 10) : null;
+    const parsedLevel = parseInt(level.toString(), 10);
+
+    let finalAccountCode = accountCode;
+
+    // Jika parent yang dipilih adalah akun daun (belum punya anak) tapi sudah
+    // punya transaksi langsung, saldo lama itu harus "dijelaskan" dulu lewat
+    // akun anak migrasi, supaya tidak hilang saat parent mulai punya anak.
+    if (parsedParentId) {
+      const [existingChildrenCount, directTxCount, parentAccount] = await Promise.all([
+        prisma.chartOfAccounts.count({ where: { parentId: parsedParentId } }),
+        prisma.transaction.count({
+          where: { OR: [{ debitAccountId: parsedParentId }, { creditAccountId: parsedParentId }] },
+        }),
+        prisma.chartOfAccounts.findUnique({ where: { id: parsedParentId } }),
+      ]);
+
+      if (!parentAccount) {
+        return res.status(400).json({
+          success: false,
+          message: "Akun induk tidak ditemukan",
+        });
+      }
+
+      if (existingChildrenCount === 0 && directTxCount > 0) {
+        const migrationCode = `${parentAccount.accountCode}.01`;
+        finalAccountCode = `${parentAccount.accountCode}.02`;
+
+        await prisma.$transaction(async (tx) => {
+          const migrationAccount = await tx.chartOfAccounts.create({
+            data: {
+              companyId: parentAccount.companyId,
+              accountCode: migrationCode,
+              accountName: `${parentAccount.accountName} (Saldo Sebelum Dipecah)`,
+              accountType: parentAccount.accountType,
+              parentId: parentAccount.id,
+              level: parentAccount.level + 1,
+              isCashFlow: parentAccount.isCashFlow,
+              isFixedAsset: parentAccount.isFixedAsset,
+              description: `Migrasi otomatis: menampung transaksi yang sebelumnya diposting langsung ke akun induk "${parentAccount.accountName}" sebelum dipecah menjadi sub-akun.`,
+            },
+          });
+
+          await tx.transaction.updateMany({
+            where: { debitAccountId: parsedParentId },
+            data: { debitAccountId: migrationAccount.id },
+          });
+          await tx.transaction.updateMany({
+            where: { creditAccountId: parsedParentId },
+            data: { creditAccountId: migrationAccount.id },
+          });
+        });
+      }
+    }
+
+    // Recheck kode akun final (bisa berbeda dari yang dikirim client jika ada migrasi)
+    const existingFinalCode = await prisma.chartOfAccounts.findUnique({
+      where: { accountCode: finalAccountCode },
+    });
+    if (existingFinalCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Account code already exists",
+      });
+    }
 
     const account = await prisma.chartOfAccounts.create({
       data: {
         companyId: parsedCompanyId,
-        accountCode,
+        accountCode: finalAccountCode,
         accountName,
         accountType,
         parentId: parsedParentId,
-        level: parseInt(level.toString(), 10),
+        level: parsedLevel,
         isCashFlow: isCashFlow || false,
         isFixedAsset: isFixedAsset || false,
         description,
       },
     });
+
+    await logActivity(req.user?.id || 0, "CREATE_ACCOUNT", `${account.accountCode} — ${account.accountName}`);
 
     res.status(201).json({
       success: true,
@@ -161,6 +228,8 @@ export const updateAccount = async (req: Request, res: Response) => {
         ...(isActive !== undefined && { isActive }),
       },
     });
+
+    await logActivity(req.user?.id || 0, "UPDATE_ACCOUNT", `${account.accountCode} — ${account.accountName}`);
 
     res.json({
       success: true,
@@ -222,6 +291,8 @@ export const deleteAccount = async (req: Request, res: Response) => {
     await prisma.chartOfAccounts.delete({
       where: { id: parseInt(id) },
     });
+
+    await logActivity(req.user?.id || 0, "DELETE_ACCOUNT", `${account.accountCode} — ${account.accountName}`);
 
     res.json({
       success: true,

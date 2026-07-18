@@ -1,13 +1,19 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
+import { logActivity } from "../utils/activityLogger";
 
 const prisma = new PrismaClient();
 
-// Helper to check if a financial period is locked (finalized)
+// Helper to check if a financial period is locked (finalized).
+// Hanya laporan NERACA yang dihitung: itu satu-satunya laporan yang dibuat
+// oleh alur "Kunci & Arsipkan" / EOD harian (selalu 1 hari per laporan).
+// Laporan jenis lain (mis. Laba Rugi custom range) tidak boleh ikut mengunci
+// transaksi, karena rentangnya bisa jauh lebih lebar dari 1 hari.
 const isPeriodLocked = async (companyId: number, date: Date): Promise<boolean> => {
   const finalizedReport = await prisma.financialReport.findFirst({
     where: {
       companyId,
+      reportType: "NERACA",
       status: "FINALIZED",
       periodStart: { lte: date },
       periodEnd: { gte: date },
@@ -17,26 +23,28 @@ const isPeriodLocked = async (companyId: number, date: Date): Promise<boolean> =
 };
 
 // Generate transaction code
-const generateTransactionCode = async (companyId: number, type: string) => {
-  const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+// Kode di-stempel berdasarkan transactionDate transaksi itu sendiri (bukan
+// tanggal server "hari ini"), supaya transaksi yang di-backdate/postdate
+// tidak semuanya jatuh ke bucket hitungan yang sama dan bentrok.
+const generateTransactionCode = async (companyId: number, type: string, transactionDate: Date, attempt = 0) => {
+  const year = transactionDate.getFullYear();
+  const month = String(transactionDate.getMonth() + 1).padStart(2, "0");
+  const day = String(transactionDate.getDate()).padStart(2, "0");
 
   const typeCode = type.substring(0, 3).toUpperCase();
 
-  // Get count of transactions for this month
+  // Get count of transactions for this specific day
   const count = await prisma.transaction.count({
     where: {
       companyId,
       transactionDate: {
-        gte: new Date(year, date.getMonth(), 1),
-        lt: new Date(year, date.getMonth() + 1, 1),
+        gte: new Date(year, transactionDate.getMonth(), transactionDate.getDate()),
+        lt: new Date(year, transactionDate.getMonth(), transactionDate.getDate() + 1),
       },
     },
   });
 
-  const seq = String(count + 1).padStart(4, "0");
+  const seq = String(count + 1 + attempt).padStart(4, "0");
   return `${typeCode}/${year}${month}${day}/${seq}`;
 };
 
@@ -154,8 +162,6 @@ export const getTransactionById = async (req: Request, res: Response) => {
 export const createTransaction = async (req: Request, res: Response) => {
   try {
     const {
-      companyId,
-      userId,
       transactionDate,
       transactionType,
       description,
@@ -168,8 +174,6 @@ export const createTransaction = async (req: Request, res: Response) => {
 
     // Validasi required fields
     if (
-      !companyId ||
-      !userId ||
       !transactionDate ||
       !transactionType ||
       !description ||
@@ -183,10 +187,31 @@ export const createTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    const parsedCompanyId = parseInt(companyId.toString(), 10);
-    const parsedUserId = parseInt(userId.toString(), 10);
+    // userId & companyId diambil dari token login (bukan dari body request)
+    // supaya Teller tidak bisa "mengatasnamakan" user lain saat input transaksi.
+    const parsedUserId = req.user?.id;
+    if (!parsedUserId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const dbUser = await prisma.user.findUnique({ where: { id: parsedUserId }, select: { companyId: true } });
+    const parsedCompanyId = dbUser?.companyId || 1;
     const parsedDebitAccountId = parseInt(debitAccountId.toString(), 10);
     const parsedCreditAccountId = parseInt(creditAccountId.toString(), 10);
+    const parsedAmount = parseFloat(amount);
+
+    if (!(parsedAmount > 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Nominal transaksi harus lebih besar dari 0",
+      });
+    }
+
+    if (parsedDebitAccountId === parsedCreditAccountId) {
+      return res.status(400).json({
+        success: false,
+        message: "Akun debit dan kredit tidak boleh sama",
+      });
+    }
 
     // Check if period is locked
     const txDate = new Date(transactionDate);
@@ -215,30 +240,55 @@ export const createTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    // Generate transaction code
-    const transactionCode = await generateTransactionCode(parsedCompanyId, transactionType);
+    // Akun induk (punya anak) hanya rangkuman saldo — tidak boleh diposting langsung
+    const [debitHasChildren, creditHasChildren] = await Promise.all([
+      prisma.chartOfAccounts.count({ where: { parentId: parsedDebitAccountId } }),
+      prisma.chartOfAccounts.count({ where: { parentId: parsedCreditAccountId } }),
+    ]);
 
-    const transaction = await prisma.transaction.create({
-      data: {
-        companyId: parsedCompanyId,
-        userId: parsedUserId,
-        transactionCode,
-        transactionDate: new Date(transactionDate),
-        transactionType,
-        description,
-        category: category || null,
-        referenceNo: referenceNo || null,
-        debitAccountId: parsedDebitAccountId,
-        creditAccountId: parsedCreditAccountId,
-        amount: parseFloat(amount),
-        status: "PENDING",
-      },
-      include: {
-        debitAccount: true,
-        creditAccount: true,
-        user: { select: { id: true, name: true, email: true } },
-      },
-    });
+    if (debitHasChildren > 0 || creditHasChildren > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Transaksi tidak dapat diposting ke akun induk (yang memiliki akun anak). Pilih akun anak yang sesuai.",
+      });
+    }
+
+    // Generate transaction code — retry with a bumped sequence if two
+    // submissions land on the same code at the same time (unique constraint).
+    const parsedTransactionDate = new Date(transactionDate);
+    let transaction;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const transactionCode = await generateTransactionCode(parsedCompanyId, transactionType, parsedTransactionDate, attempt);
+      try {
+        transaction = await prisma.transaction.create({
+          data: {
+            companyId: parsedCompanyId,
+            userId: parsedUserId,
+            transactionCode,
+            transactionDate: parsedTransactionDate,
+            transactionType,
+            description,
+            category: category || null,
+            referenceNo: referenceNo || null,
+            debitAccountId: parsedDebitAccountId,
+            creditAccountId: parsedCreditAccountId,
+            amount: parsedAmount,
+            status: "PENDING",
+          },
+          include: {
+            debitAccount: true,
+            creditAccount: true,
+            user: { select: { id: true, name: true, email: true } },
+          },
+        });
+        break;
+      } catch (err: any) {
+        const isDuplicateCode = err.code === "P2002" && err.meta?.target?.includes?.("transactionCode");
+        if (!isDuplicateCode || attempt === 2) throw err;
+      }
+    }
+
+    await logActivity(parsedUserId, "CREATE_TRANSACTION", `Kode: ${transaction!.transactionCode} | ${description} | Rp ${parsedAmount}`);
 
     res.status(201).json({
       success: true,
@@ -305,6 +355,48 @@ export const updateTransaction = async (req: Request, res: Response) => {
       }
     }
 
+    const parsedDebitAccountId = debitAccountId ? parseInt(debitAccountId.toString(), 10) : undefined;
+    const parsedCreditAccountId = creditAccountId ? parseInt(creditAccountId.toString(), 10) : undefined;
+
+    // Akun induk (punya anak) hanya rangkuman saldo — tidak boleh diposting langsung
+    if (parsedDebitAccountId || parsedCreditAccountId) {
+      const [debitHasChildren, creditHasChildren] = await Promise.all([
+        parsedDebitAccountId
+          ? prisma.chartOfAccounts.count({ where: { parentId: parsedDebitAccountId } })
+          : 0,
+        parsedCreditAccountId
+          ? prisma.chartOfAccounts.count({ where: { parentId: parsedCreditAccountId } })
+          : 0,
+      ]);
+
+      if (debitHasChildren > 0 || creditHasChildren > 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Transaksi tidak dapat diposting ke akun induk (yang memiliki akun anak). Pilih akun anak yang sesuai.",
+        });
+      }
+    }
+
+    const effectiveDebitAccountId = parsedDebitAccountId ?? transaction.debitAccountId;
+    const effectiveCreditAccountId = parsedCreditAccountId ?? transaction.creditAccountId;
+    if (effectiveDebitAccountId === effectiveCreditAccountId) {
+      return res.status(400).json({
+        success: false,
+        message: "Akun debit dan kredit tidak boleh sama",
+      });
+    }
+
+    let parsedAmount: number | undefined;
+    if (amount !== undefined) {
+      parsedAmount = parseFloat(amount);
+      if (!(parsedAmount > 0)) {
+        return res.status(400).json({
+          success: false,
+          message: "Nominal transaksi harus lebih besar dari 0",
+        });
+      }
+    }
+
     const updatedTransaction = await prisma.transaction.update({
       where: { id: parseInt(id) },
       data: {
@@ -312,9 +404,9 @@ export const updateTransaction = async (req: Request, res: Response) => {
         ...(description && { description }),
         ...(category !== undefined && { category }),
         ...(referenceNo !== undefined && { referenceNo }),
-        ...(debitAccountId && { debitAccountId }),
-        ...(creditAccountId && { creditAccountId }),
-        ...(amount && { amount: parseFloat(amount) }),
+        ...(parsedDebitAccountId && { debitAccountId: parsedDebitAccountId }),
+        ...(parsedCreditAccountId && { creditAccountId: parsedCreditAccountId }),
+        ...(parsedAmount !== undefined && { amount: parsedAmount }),
         status: "PENDING",
         rejectionReason: null,
       },
@@ -324,6 +416,8 @@ export const updateTransaction = async (req: Request, res: Response) => {
         user: { select: { id: true, name: true, email: true } },
       },
     });
+
+    await logActivity(req.user?.id || transaction.userId, "UPDATE_TRANSACTION", `Kode: ${updatedTransaction.transactionCode}`);
 
     res.json({
       success: true,
@@ -373,6 +467,8 @@ export const deleteTransaction = async (req: Request, res: Response) => {
     await prisma.transaction.delete({
       where: { id: parseInt(id) },
     });
+
+    await logActivity(req.user?.id || transaction.userId, "DELETE_TRANSACTION", `Kode: ${transaction.transactionCode} | ${transaction.description}`);
 
     res.json({
       success: true,
@@ -490,6 +586,8 @@ export const approveTransaction = async (req: Request, res: Response) => {
       return { transaction: updatedTrx, journalEntry };
     });
 
+    await logActivity(approverId, "APPROVE_TRANSACTION", `Kode: ${result.transaction.transactionCode} | Rp ${transaction.amount}`);
+
     res.json({
       success: true,
       message: "Transaction approved and posted successfully",
@@ -547,6 +645,8 @@ export const rejectTransaction = async (req: Request, res: Response) => {
         user: { select: { id: true, name: true, email: true } },
       },
     });
+
+    await logActivity(req.user?.id || 0, "REJECT_TRANSACTION", `Kode: ${updatedTransaction.transactionCode} | Alasan: ${rejectionReason}`);
 
     res.json({
       success: true,

@@ -31,54 +31,44 @@ export const getFinancialStats = async (req: Request, res: Response) => {
       ? new Date(endDate as string)
       : new Date();
 
-    // Get revenue transactions
-    const revenueTransactions = await prisma.transaction.findMany({
+    // Revenue/expense accounts — dipakai utk hitung pendapatan/beban dari arah
+    // debit-kredit akun sungguhan (REVENUE/EXPENSE), bukan dari label
+    // transactionType, supaya retur/koreksi ikut mengurangi bukan malah
+    // dijumlahkan (lihat perbaikan serupa di spkController.ts).
+    const revenueExpenseAccounts = await prisma.chartOfAccounts.findMany({
+      where: { companyId: companyIdInt, accountType: { in: ["REVENUE", "EXPENSE"] }, isActive: true },
+      select: { id: true, accountType: true },
+    });
+    const revenueIds = new Set(revenueExpenseAccounts.filter((a) => a.accountType === "REVENUE").map((a) => a.id));
+    const expenseIds = new Set(revenueExpenseAccounts.filter((a) => a.accountType === "EXPENSE").map((a) => a.id));
+
+    const trxInPeriod = await prisma.transaction.findMany({
       where: {
         companyId: companyIdInt,
-        transactionType: "PENDAPATAN",
         status: "POSTED",
-        transactionDate: {
-          gte: start,
-          lte: end,
-        },
+        transactionDate: { gte: start, lte: end },
       },
-      select: { amount: true },
+      select: { debitAccountId: true, creditAccountId: true, amount: true },
     });
 
-    // Get expense transactions
-    const expenseTransactions = await prisma.transaction.findMany({
-      where: {
-        companyId: companyIdInt,
-        transactionType: "PENGELUARAN",
-        status: "POSTED",
-        transactionDate: {
-          gte: start,
-          lte: end,
-        },
-      },
-      select: { amount: true },
+    let totalRevenue = 0;
+    let totalExpense = 0;
+    trxInPeriod.forEach((t) => {
+      const a = parseFloat(t.amount.toString());
+      if (revenueIds.has(t.creditAccountId)) totalRevenue += a;
+      if (revenueIds.has(t.debitAccountId)) totalRevenue -= a;
+      if (expenseIds.has(t.debitAccountId)) totalExpense += a;
+      if (expenseIds.has(t.creditAccountId)) totalExpense -= a;
     });
-
-    // Calculate totals
-    const totalRevenue = revenueTransactions.reduce(
-      (sum, t) => sum + parseFloat(t.amount.toString()),
-      0
-    );
-
-    const totalExpense = expenseTransactions.reduce(
-      (sum, t) => sum + parseFloat(t.amount.toString()),
-      0
-    );
 
     const netProfit = totalRevenue - totalExpense;
     const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
-    // Get cash balance (from ASSET accounts)
+    // Get cash balance (akun kas/bank sungguhan, ditandai isCashFlow)
     const cashAccounts = await prisma.chartOfAccounts.findMany({
       where: {
         companyId: companyIdInt,
-        accountType: "ASSET",
-        accountCode: { contains: "1.1" }, // Current assets
+        isCashFlow: true,
       },
       select: { id: true },
     });
@@ -282,28 +272,31 @@ const getMonthlyStats = async (
   startDate: Date,
   endDate: Date
 ) => {
-  const revenue = await prisma.transaction.aggregate({
-    _sum: { amount: true },
+  const revenueExpenseAccounts = await prisma.chartOfAccounts.findMany({
+    where: { companyId, accountType: { in: ["REVENUE", "EXPENSE"] }, isActive: true },
+    select: { id: true, accountType: true },
+  });
+  const revenueIds = new Set(revenueExpenseAccounts.filter((a) => a.accountType === "REVENUE").map((a) => a.id));
+  const expenseIds = new Set(revenueExpenseAccounts.filter((a) => a.accountType === "EXPENSE").map((a) => a.id));
+
+  const trxInPeriod = await prisma.transaction.findMany({
     where: {
       companyId,
-      transactionType: "PENDAPATAN",
       status: "POSTED",
       transactionDate: { gte: startDate, lte: endDate },
     },
+    select: { debitAccountId: true, creditAccountId: true, amount: true },
   });
 
-  const expense = await prisma.transaction.aggregate({
-    _sum: { amount: true },
-    where: {
-      companyId,
-      transactionType: "PENGELUARAN",
-      status: "POSTED",
-      transactionDate: { gte: startDate, lte: endDate },
-    },
+  let totalRevenue = 0;
+  let totalExpense = 0;
+  trxInPeriod.forEach((t) => {
+    const a = parseFloat(t.amount.toString());
+    if (revenueIds.has(t.creditAccountId)) totalRevenue += a;
+    if (revenueIds.has(t.debitAccountId)) totalRevenue -= a;
+    if (expenseIds.has(t.debitAccountId)) totalExpense += a;
+    if (expenseIds.has(t.creditAccountId)) totalExpense -= a;
   });
-
-  const totalRevenue = parseFloat(revenue._sum.amount?.toString() || "0") || 0;
-  const totalExpense = parseFloat(expense._sum.amount?.toString() || "0") || 0;
 
   return {
     totalRevenue,

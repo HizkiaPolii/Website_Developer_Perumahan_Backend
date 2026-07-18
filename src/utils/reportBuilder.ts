@@ -282,11 +282,12 @@ export async function buildFinancialReportsForDate(companyId: number, date: Date
     labaBersih,
   };
 
-  // 8. Equity Change
-  const modalRoots = accounts.filter(a => a.type === 'modal' && !a.parentId && !a.isDrawing);
-  const priveRoots = accounts.filter(a => a.type === 'modal' && !a.parentId && a.isDrawing);
-  const modalAwal = modalRoots.reduce((s, a) => s + (balances[a.id] || 0), 0);
-  const prive = Math.abs(priveRoots.reduce((s, a) => s + (balances[a.id] || 0), 0));
+  // 8. Equity Change — pakai saldo langsung (leaf) tiap akun modal/prive di
+  // SEMUA level, bukan cuma akun akar (lihat catatan yang sama di accounting.ts).
+  const modalAccounts = accounts.filter(a => a.type === 'modal' && !a.isDrawing);
+  const priveAccounts = accounts.filter(a => a.type === 'modal' && a.isDrawing);
+  const modalAwal = modalAccounts.reduce((s, a) => s + (leafBalances[a.id] || 0), 0);
+  const prive = Math.abs(priveAccounts.reduce((s, a) => s + (leafBalances[a.id] || 0), 0));
   const ekuitasAkhir = modalAwal + labaBersih - prive;
 
   const equityChange: EquityChange = { modalAwal, labaBersih, prive, ekuitasAkhir };

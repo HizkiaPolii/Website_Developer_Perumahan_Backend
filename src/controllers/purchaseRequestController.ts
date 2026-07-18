@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../utils/database";
+import { logActivity } from "../utils/activityLogger";
 
 // Helper to generate PR Code: PR-YYYY-XXX
 const generatePRCode = async (companyId: number): Promise<string> => {
@@ -262,6 +263,8 @@ export const createPurchaseRequest = async (req: Request, res: Response) => {
       createdAt: request.createdAt.toISOString(),
     };
 
+    await logActivity(userId, "CREATE_PURCHASE_REQUEST", `${request.prCode} | ${request.item} (${request.quantity}) | Rp ${formatted.amount}`);
+
     res.status(201).json({
       success: true,
       message: "Pengajuan pengadaan berhasil dibuat",
@@ -361,6 +364,8 @@ export const approvePurchaseRequestManager = async (req: Request, res: Response)
       approvedByManagerAt: updated.approvedByManagerAt ? updated.approvedByManagerAt.toISOString() : undefined,
     };
 
+    await logActivity(userId, "APPROVE_PURCHASE_REQUEST_MANAGER", `${updated.prCode} | Nota: ${updated.notaNumber}`);
+
     res.json({
       success: true,
       message: "Pengajuan disetujui Manager dan nomor nota diterbitkan",
@@ -457,6 +462,8 @@ export const approvePurchaseRequestOwner = async (req: Request, res: Response) =
       approvedByOwner: updated.approvedByOwner || undefined,
       approvedByOwnerAt: updated.approvedByOwnerAt ? updated.approvedByOwnerAt.toISOString() : undefined,
     };
+
+    await logActivity(userId, "APPROVE_PURCHASE_REQUEST_OWNER", `${updated.prCode} | ACC Final`);
 
     res.json({
       success: true,
@@ -558,6 +565,8 @@ export const rejectPurchaseRequest = async (req: Request, res: Response) => {
       rejectionReason: updated.rejectionReason || undefined,
     };
 
+    await logActivity(userId, "REJECT_PURCHASE_REQUEST", `${updated.prCode} | Alasan: ${updated.rejectionReason}`);
+
     res.json({
       success: true,
       message: "Pengajuan berhasil ditolak",
@@ -620,6 +629,8 @@ export const deletePurchaseRequest = async (req: Request, res: Response) => {
     await prisma.purchaseRequest.delete({
       where: { id: request.id }
     });
+
+    await logActivity(userId, "DELETE_PURCHASE_REQUEST", `${request.prCode} | ${request.item}`);
 
     res.json({
       success: true,

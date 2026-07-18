@@ -1,11 +1,16 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { runEODForCompany } from "../services/eodService";
+import { buildFinancialReportsForDate } from "../utils/reportBuilder";
+import { logActivity } from "../utils/activityLogger";
 
 const prisma = new PrismaClient();
 
 // ==================== REAL-TIME BALANCE SHEET GENERATION ====================
-// Calculates actual balances from posted transactions in the database
+// Calculates actual balances from posted transactions in the database.
+// Delegates to buildFinancialReportsForDate (utils/reportBuilder.ts) — the
+// same rollup logic used by the EOD/"Kunci & Arsipkan" flow — so this
+// endpoint can't drift into its own, separately-buggy balance calculation.
 export const generateBalanceSheet = async (req: Request, res: Response) => {
   try {
     // Accept from body OR query for flexibility
@@ -16,17 +21,18 @@ export const generateBalanceSheet = async (req: Request, res: Response) => {
     const periodEnd = req.body.periodEnd || req.body.periodStart || req.query.periodEnd || new Date().toISOString();
 
     const periodEndDate = new Date(periodEnd);
+    const parsedCompanyId = parseInt(companyId as string);
     const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    // Cek apakah laporan yang sudah difinalisasi sudah ada di database
+    // Cek apakah laporan yang sudah difinalisasi (dikunci) sudah ada di database
     const existingReport = await prisma.financialReport.findUnique({
       where: {
         companyId_reportType_periodEnd: {
-          companyId: parseInt(companyId as string),
-          reportType: "BALANCE_SHEET",
+          companyId: parsedCompanyId,
+          reportType: "NERACA",
           periodEnd: periodEndDate,
         }
       },
@@ -42,7 +48,7 @@ export const generateBalanceSheet = async (req: Request, res: Response) => {
         message: "Laporan Neraca (FINALIZED/Locked) berhasil dimuat dari database",
         data: {
           id: existingReport.id,
-          reportType: "BALANCE_SHEET",
+          reportType: "NERACA",
           periodEnd: periodEndDate,
           status: "FINALIZED",
           reportData: existingReport.reportData,
@@ -54,130 +60,29 @@ export const generateBalanceSheet = async (req: Request, res: Response) => {
       });
     }
 
-    // Get ALL chart of accounts for BS types (ASSET, LIABILITY, EQUITY)
-    const accounts = await prisma.chartOfAccounts.findMany({
-      where: {
-        companyId: parseInt(companyId as string),
-        accountType: { in: ["ASSET", "LIABILITY", "EQUITY"] },
-        isActive: true,
-      },
-      orderBy: { accountCode: "asc" },
-    });
-
-    // Get ALL posted transactions up to the period end
-    const transactions = await prisma.transaction.findMany({
-      where: {
-        companyId: parseInt(companyId as string),
-        status: { in: ["POSTED", "APPROVED"] },
-        transactionDate: { lte: periodEndDate },
-      },
-      select: {
-        amount: true,
-        debitAccountId: true,
-        creditAccountId: true,
-        debitAccount: { select: { accountType: true } },
-        creditAccount: { select: { accountType: true } },
-      },
-    });
-
-    // Also get revenue/expense transactions to calculate net income
-    const revenueExpenseAccounts = await prisma.chartOfAccounts.findMany({
-      where: {
-        companyId: parseInt(companyId as string),
-        accountType: { in: ["REVENUE", "EXPENSE"] },
-        isActive: true,
-      },
-      select: { id: true, accountType: true },
-    });
-
-    const revenueAccountIds = revenueExpenseAccounts.filter(a => a.accountType === "REVENUE").map(a => a.id);
-    const expenseAccountIds = revenueExpenseAccounts.filter(a => a.accountType === "EXPENSE").map(a => a.id);
-
-    // Calculate balance for each account
-    const accountBalances = new Map<number, number>();
-
-    for (const tx of transactions) {
-      const amount = parseFloat(tx.amount.toString());
-      const debitType = tx.debitAccount.accountType;
-      const creditType = tx.creditAccount.accountType;
-
-      // DEBIT side: Assets increase, Liabilities/Equity decrease
-      const currentDebit = accountBalances.get(tx.debitAccountId) || 0;
-      if (debitType === "ASSET") {
-        accountBalances.set(tx.debitAccountId, currentDebit + amount);
-      } else if (debitType === "LIABILITY" || debitType === "EQUITY") {
-        accountBalances.set(tx.debitAccountId, currentDebit - amount);
-      }
-
-      // CREDIT side: Assets decrease, Liabilities/Equity increase
-      const currentCredit = accountBalances.get(tx.creditAccountId) || 0;
-      if (creditType === "ASSET") {
-        accountBalances.set(tx.creditAccountId, currentCredit - amount);
-      } else if (creditType === "LIABILITY" || creditType === "EQUITY") {
-        accountBalances.set(tx.creditAccountId, currentCredit + amount);
-      }
-    }
-
-    // Calculate net income from revenue/expense
-    let netIncome = 0;
-    for (const tx of transactions) {
-      const amount = parseFloat(tx.amount.toString());
-      // Revenue credited = income
-      if (revenueAccountIds.includes(tx.creditAccountId)) netIncome += amount;
-      // Revenue debited = income reduction
-      if (revenueAccountIds.includes(tx.debitAccountId)) netIncome -= amount;
-      // Expense debited = expense increase
-      if (expenseAccountIds.includes(tx.debitAccountId)) netIncome -= amount;
-      // Expense credited = expense reduction
-      if (expenseAccountIds.includes(tx.creditAccountId)) netIncome += amount;
-    }
-
-    // Map account types to Indonesian naming for the frontend
-    const typeMap: Record<string, string> = {
-      ASSET: "ASET",
-      LIABILITY: "KEWAJIBAN",
-      EQUITY: "EKUITAS",
-    };
-
-    // Build items array exactly as the frontend expects
-    const items = accounts.map((acc) => ({
-      id: acc.id,
-      code: acc.accountCode,
-      name: acc.accountName,
-      type: typeMap[acc.accountType] || acc.accountType,
-      amount: accountBalances.get(acc.id) || 0,
-      level: acc.level as 1 | 2 | 3 | 4,
-    }));
-
-    // Try to find or add "Laba Bersih Tahun Berjalan" in equity items
-    const labaAccount = items.find(
-      (i) => i.code.includes("3.1.02.02") || i.name.toLowerCase().includes("laba bersih")
-    );
-    if (labaAccount) {
-      labaAccount.amount += netIncome;
-    }
+    const { balanceSheet } = await buildFinancialReportsForDate(parsedCompanyId, periodEndDate);
 
     // Simpan atau update DRAFT di database
     const savedReport = await prisma.financialReport.upsert({
       where: {
         companyId_reportType_periodEnd: {
-          companyId: parseInt(companyId as string),
-          reportType: "BALANCE_SHEET",
+          companyId: parsedCompanyId,
+          reportType: "NERACA",
           periodEnd: periodEndDate,
         }
       },
       update: {
-        reportData: { items } as any,
+        reportData: balanceSheet as any,
         updatedAt: new Date(),
       },
       create: {
-        companyId: parseInt(companyId as string),
-        reportType: "BALANCE_SHEET",
+        companyId: parsedCompanyId,
+        reportType: "NERACA",
         reportDate: new Date(),
         periodStart: new Date(periodEndDate.getFullYear(), 0, 1),
         periodEnd: periodEndDate,
         status: "DRAFT",
-        reportData: { items } as any,
+        reportData: balanceSheet as any,
         createdBy: userId,
       },
       include: {
@@ -190,12 +95,10 @@ export const generateBalanceSheet = async (req: Request, res: Response) => {
       message: "Laporan Neraca berhasil digenerate dari database",
       data: {
         id: savedReport.id,
-        reportType: "BALANCE_SHEET",
+        reportType: "NERACA",
         periodEnd: periodEndDate,
         status: "DRAFT",
-        reportData: {
-          items,
-        },
+        reportData: balanceSheet,
         creator: savedReport.creator,
       },
     });
@@ -927,6 +830,8 @@ export const triggerEOD = async (req: Request, res: Response) => {
     const targetDate = new Date(date);
 
     await runEODForCompany(parsedCompanyId, targetDate, userId);
+
+    await logActivity(userId, "LOCK_ARCHIVE_REPORT", `Kunci & Arsipkan laporan tanggal ${targetDate.toLocaleDateString("id-ID")}`);
 
     res.json({
       success: true,
